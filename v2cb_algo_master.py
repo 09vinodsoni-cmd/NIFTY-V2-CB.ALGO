@@ -135,6 +135,42 @@ def detect_reversal_confirmation(state, candles):
     return None, None
 
 
+def compute_nifty_sl_level(entry_price, direction, marked_high, marked_low):
+    """Same formula as L2.compute_nifty_sl_points, but also returns the actual level."""
+    if direction == "long":
+        full_level = marked_low - L2.SL_BUFFER_NIFTY
+        full_sl_pts = entry_price - full_level
+    else:
+        full_level = marked_high + L2.SL_BUFFER_NIFTY
+        full_sl_pts = full_level - entry_price
+    scaled_sl_pts = full_sl_pts * L2.SL_SCALE_PCT
+    sl_level = entry_price - scaled_sl_pts if direction == "long" else entry_price + scaled_sl_pts
+    return sl_level, scaled_sl_pts
+
+
+def monitor_virtual_trade(state, candles):
+    """Checks if the virtually-tracked (non-desired-direction) trade has hit ITS
+    SL, using the same touch-based (low/high) check a real SL order would use.
+    Returns True if it just hit (caller should notify)."""
+    vt = state.get("virtual_trade")
+    if vt is None or len(candles) < 3:
+        return False
+    latest = candles[-1]
+    if state.get("last_processed_virtual") == latest["dt"].isoformat():
+        return False
+    state["last_processed_virtual"] = latest["dt"].isoformat()
+
+    direction = vt["direction"]
+    sl_hit = (latest["low"] <= vt["sl_level"]) if direction == "long" else (latest["high"] >= vt["sl_level"])
+    if sl_hit:
+        state["last_closed_trade"] = {"direction": direction, "outcome": "sl_hit_virtual",
+                                       "sl_points_nifty": vt["sl_points"], "r_reached": 0}
+        state["virtual_trade"] = None
+        state["awaiting_reversal_confirmation"] = vt["sl_points"] <= 80
+        return True
+    return False
+
+
 def direction_allowed(state, direction):
     mode = state["mode"]
     if mode == "on":
@@ -157,6 +193,7 @@ def main():
             "trades_today": 0, "open_trade": None, "last_processed": None,
             "last_telegram_update_id": state.get("last_telegram_update_id", 0),
             "awaiting_reversal_confirmation": False, "last_closed_trade": None,
+            "virtual_trade": None, "last_processed_virtual": None,
         }
 
     # 1) Process Telegram commands (always, regardless of mode)
@@ -170,7 +207,7 @@ def main():
         return
 
     # 2) Set up Groww client (real for reads always; paper wrapper for writes if PAPER_MODE)
-    access_token = L2.get_groww_access_token()
+    access_token = L1.get_groww_access_token()
     from growwapi import GrowwAPI
     real_groww = GrowwAPI(access_token)
     groww = PaperGroww(real_groww) if PAPER_MODE else real_groww
@@ -185,8 +222,17 @@ def main():
         L1.save_state(state)
         return
 
-    # 4) No open trade - fetch Nifty candles and look for an entry signal
+    # 4) No open trade - fetch Nifty candles
     candles = fetch_todays_nifty_candles(access_token)
+
+    # 4a) If we're virtually tracking a non-desired-direction trade, check if IT hit its SL
+    if state.get("virtual_trade") is not None:
+        hit = monitor_virtual_trade(state, candles)
+        if hit:
+            send_telegram("👁️ Virtually-tracked trade hit its SL. Now watching for reversal confirmation "
+                          "into your desired direction.")
+        L1.save_state(state)
+        return
 
     if state.get("awaiting_reversal_confirmation"):
         direction, entry_price = detect_reversal_confirmation(state, candles)
@@ -204,11 +250,12 @@ def main():
     sl_points_nifty = L2.compute_nifty_sl_points(entry_price, direction, state["marked_high"], state["marked_low"])
 
     if not direction_allowed(state, direction):
-        # Track virtually only - do not place a real order, just remember we're
-        # watching for this to hit ITS virtual SL (which would make the opposite
-        # direction eligible - and the opposite direction IS what we want).
+        sl_level, _ = compute_nifty_sl_level(entry_price, direction, state["marked_high"], state["marked_low"])
+        state["virtual_trade"] = {"direction": direction, "entry_price": entry_price,
+                                   "sl_level": sl_level, "sl_points": sl_points_nifty}
         send_telegram(f"👁️ Virtual-tracking {direction} signal at {entry_price} (not your desired direction). "
-                      f"Watching for its SL to confirm a reversal into your direction.")
+                      f"Virtual SL: {sl_level:.2f}. Watching for it to hit, which would confirm a reversal "
+                      f"into your direction.")
         state["trades_today"] += 1  # counts toward the 2/day cap same as a real trade would
         L1.save_state(state)
         return
