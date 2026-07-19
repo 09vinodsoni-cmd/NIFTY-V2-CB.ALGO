@@ -1,12 +1,12 @@
 {
   "date": "2026-07-19",
-  "mode": "bullishonly",
+  "mode": "off",
   "marked_high": null,
   "marked_low": null,
   "trades_today": 0,
   "open_trade": null,
   "last_processed": null,
-  "last_telegram_update_id": 130558044,
+  "last_telegram_update_id": 130558046,
   "awaiting_reversal_confirmation": false,
   "last_closed_trade": null,
   "awaiting_setsl": false
