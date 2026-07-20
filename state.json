@@ -1,5 +1,5 @@
 {
-  "date": "2026-07-19",
+  "date": "2026-07-20",
   "mode": "off",
   "marked_high": null,
   "marked_low": null,
@@ -9,5 +9,6 @@
   "last_telegram_update_id": 130558046,
   "awaiting_reversal_confirmation": false,
   "last_closed_trade": null,
-  "awaiting_setsl": false
+  "virtual_trade": null,
+  "last_processed_virtual": null
 }
