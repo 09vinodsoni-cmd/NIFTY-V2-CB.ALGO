@@ -69,29 +69,32 @@ def select_strike(groww, direction, sl_points_nifty, expiry_date):
 
     option_type = "CE" if direction == "long" else "PE"
 
-    # NOTE: exact method name/params for Groww's option-chain API should be verified
-    # against current growwapi docs before going live - placeholder call shown below.
     chain = groww.get_option_chain(
         exchange=groww.EXCHANGE_NSE,
-        segment=groww.SEGMENT_FNO,
-        trading_symbol="NIFTY",
+        underlying="NIFTY",
         expiry_date=expiry_date,
     )
 
-    candidates = [row for row in chain if row.get("option_type") == option_type]
-    if not candidates:
-        return None
+    strikes = chain.get("strikes", {})
+    candidates = []
+    for strike_price, row in strikes.items():
+        opt = row.get(option_type)
+        if opt is None:
+            continue
+        delta = opt.get("greeks", {}).get("delta")
+        if delta is None:
+            continue
+        candidates.append({
+            "trading_symbol": opt["trading_symbol"],
+            "delta": abs(delta),
+            "ltp": opt.get("ltp"),
+        })
 
-    # pick the strike whose delta is closest to target_delta, but not below MIN_DELTA
-    valid = [r for r in candidates if r.get("delta") is not None and abs(r["delta"]) >= MIN_DELTA]
+    valid = [r for r in candidates if abs(r["delta"]) >= MIN_DELTA]
     if not valid:
         return None
-    best = min(valid, key=lambda r: abs(abs(r["delta"]) - target_delta))
-    return {
-        "trading_symbol": best["trading_symbol"],
-        "delta": abs(best["delta"]),
-        "ltp": best.get("ltp"),
-    }
+    best = min(valid, key=lambda r: abs(r["delta"] - target_delta))
+    return best
 
 
 def place_entry_order(groww, trading_symbol, quantity=1):
