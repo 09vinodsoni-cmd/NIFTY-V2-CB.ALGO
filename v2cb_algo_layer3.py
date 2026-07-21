@@ -23,12 +23,9 @@ EOD_SQUARE_OFF_TIME = dtime(15, 15)   # force-exit cutoff
 
 
 def get_premium_ltp(groww, trading_symbol):
-    resp = groww.get_ltp(
-        segment=groww.SEGMENT_FNO,
-        exchange_trading_symbols=[trading_symbol],
-    )
-    # NOTE: exact response shape should be verified against current growwapi docs
-    return resp[trading_symbol]["ltp"]
+    key = f"NSE_{trading_symbol}"
+    resp = groww.get_ltp(segment=groww.SEGMENT_FNO, exchange_trading_symbols=key)
+    return resp[key]
 
 
 def cancel_order_safe(groww, order_id):
