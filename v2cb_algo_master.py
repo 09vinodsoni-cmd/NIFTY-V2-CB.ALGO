@@ -178,7 +178,10 @@ def monitor_virtual_trade(state, candles):
         state["last_closed_trade"] = {"direction": direction, "outcome": "sl_hit_virtual",
                                        "sl_points_nifty": vt["sl_points"], "r_reached": 0}
         state["virtual_trade"] = None
-        state["awaiting_reversal_confirmation"] = vt["sl_points"] <= 80
+        eligible = vt["sl_points"] <= 80 and state["trades_today"] < 2
+        state["awaiting_reversal_confirmation"] = eligible
+        if not eligible:
+            state["day_done"] = True
         return True
     return False
 
@@ -205,7 +208,7 @@ def main():
             "trades_today": 0, "open_trade": None, "last_processed": None,
             "last_telegram_update_id": state.get("last_telegram_update_id", 0),
             "awaiting_reversal_confirmation": False, "last_closed_trade": None,
-            "virtual_trade": None, "last_processed_virtual": None,
+            "virtual_trade": None, "last_processed_virtual": None, "day_done": False,
         }
 
     # 1) Process Telegram commands (always, regardless of mode)
@@ -235,6 +238,10 @@ def main():
         return
 
     # 4) No open trade - fetch Nifty candles
+    if state.get("day_done"):
+        L1.save_state(state)
+        return
+
     candles = fetch_todays_nifty_candles(access_token)
 
     # 4a) If we're virtually tracking a non-desired-direction trade, check if IT hit its SL
