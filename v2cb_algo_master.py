@@ -260,7 +260,12 @@ def main():
         L1.save_state(state)
         return
 
-    strike_info = L2.select_strike(groww, direction, sl_points_nifty, expiry_date=today_str)
+    nearest_expiry = L2.get_nearest_expiry(groww)
+    if nearest_expiry is None:
+        send_telegram("⚠️ Could not fetch nearest expiry date from Groww - signal skipped.")
+        L1.save_state(state)
+        return
+    strike_info = L2.select_strike(groww, direction, sl_points_nifty, expiry_date=nearest_expiry)
     if strike_info is None:
         send_telegram(f"⚠️ {direction} signal at {entry_price} SKIPPED - no strike found within Rs 3500 risk budget.")
         L1.save_state(state)
