@@ -22,6 +22,36 @@ IST = pytz.timezone("Asia/Kolkata")
 EOD_SQUARE_OFF_TIME = dtime(15, 15)   # force-exit cutoff
 
 
+def get_interval_ohlc(groww, trading_symbol, start_time_str, end_time_str):
+    """
+    Fetch 1-min candles for the premium between start_time and end_time (covering
+    the gap since the last workflow run), and return (interval_high, interval_low,
+    last_close) aggregated across that whole interval - so no SL/TP touch gets
+    missed between 5-minute polling gaps.
+    """
+    try:
+        resp = groww.get_historical_candle_data(
+            trading_symbol=trading_symbol,
+            exchange=groww.EXCHANGE_NSE,
+            segment=groww.SEGMENT_FNO,
+            start_time=start_time_str,
+            end_time=end_time_str,
+            interval_in_minutes=1,
+        )
+    except Exception as e:
+        print(f"get_historical_candle_data failed: {e}")
+        return None, None, None
+
+    candles = resp.get("candles", []) if isinstance(resp, dict) else resp
+    if not candles:
+        return None, None, None
+
+    highs = [c[2] for c in candles]
+    lows = [c[3] for c in candles]
+    closes = [c[4] for c in candles]
+    return max(highs), min(lows), closes[-1]
+
+
 def get_premium_ltp(groww, trading_symbol):
     key = f"NSE_{trading_symbol}"
     resp = groww.get_ltp(segment=groww.SEGMENT_FNO, exchange_trading_symbols=key)
@@ -88,20 +118,29 @@ def manage_open_trade(groww, state, send_telegram):
         finalize_trade(state, trade, outcome="eod_square_off")
         return
 
-    ltp = get_premium_ltp(groww, trade["trading_symbol"])
+    now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+    start_str = trade.get("last_checked_time") or now_str
+    interval_high, interval_low, last_close = get_interval_ohlc(
+        groww, trade["trading_symbol"], start_str, now_str
+    )
+    trade["last_checked_time"] = now_str
 
-    # ---- Check SL ----
-    if ltp <= trade["sl_current_premium"]:
-        # The standing SL-Market order on the broker should already be filling/filled;
-        # we just need to confirm and update our own state/logging.
+    if interval_high is None:
+        # No candle data back yet (e.g. very first check) - fall back to a single LTP read
+        ltp = get_premium_ltp(groww, trade["trading_symbol"])
+        interval_high = interval_low = ltp
+
+    # ---- Check SL first (conservative): premium is always bought, so a LOW touch
+    # on the SL level means a loss, regardless of whether direction is long/short ----
+    if interval_low <= trade["sl_current_premium"]:
         was_full_loss = (trade["r_step"] == 1)
-        send_telegram(f"🛑 SL hit on {trade['trading_symbol']} at ~{ltp}. "
-                      f"R reached before SL: {trade['r_step'] - 1}.")
+        send_telegram(f"🛑 SL hit on {trade['trading_symbol']} (interval low {interval_low:.2f} touched "
+                      f"SL {trade['sl_current_premium']:.2f}). R reached before SL: {trade['r_step'] - 1}.")
         finalize_trade(state, trade, outcome="sl_hit", full_loss=was_full_loss)
         return
 
-    # ---- Check target ----
-    if ltp >= trade["target_premium"]:
+    # ---- Check target: a HIGH touch on the target level means the ratchet advances ----
+    if interval_high >= trade["target_premium"]:
         advance_ratchet(groww, trade, send_telegram)
 
 
