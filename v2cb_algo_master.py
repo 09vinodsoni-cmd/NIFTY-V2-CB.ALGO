@@ -63,6 +63,18 @@ class PaperGroww:
     def get_option_chain(self, **kwargs):
         return self._real.get_option_chain(**kwargs)
 
+    def get_expiries(self, **kwargs):
+        return self._real.get_expiries(**kwargs)
+
+    def get_historical_candle_data(self, **kwargs):
+        return self._real.get_historical_candle_data(**kwargs)
+
+    def __getattr__(self, name):
+        # Any constant/attribute access (e.g. EXCHANGE_NSE, SEGMENT_FNO) that isn't
+        # explicitly defined above falls through to the real client automatically,
+        # so future read-only methods don't silently break paper-mode again.
+        return getattr(self._real, name)
+
 
 def fetch_todays_nifty_candles(access_token):
     today = datetime.now(IST).strftime("%Y-%m-%d")
