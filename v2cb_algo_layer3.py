@@ -173,7 +173,11 @@ def advance_ratchet(groww, trade, send_telegram):
 
 def finalize_trade(state, trade, outcome, full_loss=False):
     """Records the trade outcome and switches the bot back to 'watching Nifty' mode
-    (for the possible reversal), per the SL<=80pt reversal-eligibility rule."""
+    (for the possible reversal), per the SL<=80pt reversal-eligibility rule.
+    If the close does NOT qualify for a reversal attempt, the day is marked done -
+    no further fresh-entry scanning happens today (matches the strategy rule:
+    a profitable/EOD close ends the day; only a genuine SL-hit can open a
+    reversal opportunity)."""
     state["last_closed_trade"] = {
         "trading_symbol": trade["trading_symbol"],
         "direction": trade["direction"],
@@ -187,3 +191,4 @@ def finalize_trade(state, trade, outcome, full_loss=False):
         state["awaiting_reversal_confirmation"] = True
     else:
         state["awaiting_reversal_confirmation"] = False
+        state["day_done"] = True
