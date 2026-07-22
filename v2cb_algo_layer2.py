@@ -53,6 +53,28 @@ def compute_nifty_sl_points(entry_price, direction, marked_high, marked_low):
     return scaled_sl_pts
 
 
+def get_nearest_expiry(groww):
+    """Fetch the actual nearest upcoming weekly expiry date for NIFTY from Groww,
+    instead of assuming today is the expiry date."""
+    today = datetime.now(IST).date()
+    for year, month in [(today.year, today.month), (today.year, today.month + 1)]:
+        try:
+            resp = groww.get_expiries(
+                exchange=groww.EXCHANGE_NSE,
+                underlying_symbol="NIFTY",
+                year=year,
+                month=month,
+            )
+        except Exception as e:
+            print(f"get_expiries failed for {year}-{month}: {e}")
+            continue
+        dates = resp if isinstance(resp, list) else resp.get("expiries", [])
+        future_dates = sorted(d for d in dates if datetime.strptime(d, "%Y-%m-%d").date() >= today)
+        if future_dates:
+            return future_dates[0]
+    return None
+
+
 def select_strike(groww, direction, sl_points_nifty, expiry_date):
     """
     Fetch the option chain for the current week's expiry, and pick the strike
@@ -90,8 +112,17 @@ def select_strike(groww, direction, sl_points_nifty, expiry_date):
             "ltp": opt.get("ltp"),
         })
 
+    print(f"[select_strike] direction={direction} target_delta={target_delta:.3f} "
+          f"total_strikes_in_chain={len(strikes)} candidates_with_delta={len(candidates)}")
+    if candidates:
+        print(f"[select_strike] delta range found: "
+              f"{min(c['delta'] for c in candidates):.3f} to {max(c['delta'] for c in candidates):.3f}")
+
     valid = [r for r in candidates if abs(r["delta"]) >= MIN_DELTA]
     if not valid:
+        print(f"[select_strike] No candidates with delta >= {MIN_DELTA} found - "
+              f"this likely means the option-chain response wasn't parsed as expected "
+              f"(check the raw 'chain' structure), not a genuine risk-budget issue.")
         return None
     best = min(valid, key=lambda r: abs(r["delta"] - target_delta))
     return best
@@ -141,4 +172,5 @@ def build_trade_state(direction, nifty_entry_price, sl_points_nifty, strike_info
         "hit_1_2": False,
         "sl_order_id": None,   # filled in once the initial SL order is placed (Layer 3)
         "sl_manually_overridden": False,
+        "last_checked_time": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
     }
