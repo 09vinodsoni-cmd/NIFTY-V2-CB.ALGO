@@ -5,7 +5,7 @@
   "marked_low": 23876.75,
   "trades_today": 0,
   "open_trade": null,
-  "last_processed": null,
+  "last_processed": "2026-07-23T09:45:00+05:30",
   "last_telegram_update_id": 130558065,
   "awaiting_reversal_confirmation": false,
   "last_closed_trade": null,
