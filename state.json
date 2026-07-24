@@ -1,15 +1,16 @@
 {
   "date": "2026-07-24",
-  "mode": "off",
+  "mode": "on",
   "marked_high": null,
   "marked_low": null,
   "trades_today": 0,
   "open_trade": null,
   "last_processed": null,
-  "last_telegram_update_id": 130558065,
+  "last_telegram_update_id": 130558066,
   "awaiting_reversal_confirmation": false,
   "last_closed_trade": null,
   "virtual_trade": null,
   "last_processed_virtual": null,
-  "day_done": false
+  "day_done": false,
+  "awaiting_setsl": false
 }
