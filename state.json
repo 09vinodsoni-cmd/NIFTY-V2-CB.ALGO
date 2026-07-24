@@ -1,22 +1,15 @@
 {
-  "date": "2026-07-23",
-  "mode": "on",
-  "marked_high": 23951.5,
-  "marked_low": 23876.75,
-  "trades_today": 2,
+  "date": "2026-07-24",
+  "mode": "off",
+  "marked_high": null,
+  "marked_low": null,
+  "trades_today": 0,
   "open_trade": null,
-  "last_processed": "2026-07-23T12:45:00+05:30",
+  "last_processed": null,
   "last_telegram_update_id": 130558065,
   "awaiting_reversal_confirmation": false,
-  "last_closed_trade": {
-    "trading_symbol": "NIFTY26JUL24150PE",
-    "direction": "short",
-    "outcome": "sl_hit",
-    "sl_points_nifty": 64.61000000000095,
-    "r_reached": 0
-  },
+  "last_closed_trade": null,
   "virtual_trade": null,
   "last_processed_virtual": null,
-  "day_done": true,
-  "awaiting_setsl": false
+  "day_done": false
 }
