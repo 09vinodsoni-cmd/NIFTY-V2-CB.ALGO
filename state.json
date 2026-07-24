@@ -21,15 +21,15 @@
     "hit_1_2": false,
     "sl_order_id": "PAPER-1784867443.827239",
     "sl_manually_overridden": true,
-    "last_checked_time": "2026-07-24 11:55:34",
-    "sl_current": 179.0
+    "last_checked_time": "2026-07-24 11:56:30",
+    "sl_current": 181.09
   },
   "last_processed": "2026-07-24T10:00:00+05:30",
-  "last_telegram_update_id": 130558075,
+  "last_telegram_update_id": 130558076,
   "awaiting_reversal_confirmation": false,
   "last_closed_trade": null,
   "virtual_trade": null,
   "last_processed_virtual": null,
   "day_done": false,
-  "awaiting_setsl": true
+  "awaiting_setsl": false
 }
