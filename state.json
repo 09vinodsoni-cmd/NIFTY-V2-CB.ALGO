@@ -1,15 +1,16 @@
 {
   "date": "2026-08-10",
-  "mode": "off",
-  "marked_high": null,
-  "marked_low": null,
+  "mode": "on",
+  "marked_high": 24620.55,
+  "marked_low": 24511.3,
   "trades_today": 0,
   "open_trade": null,
   "last_processed": null,
-  "last_telegram_update_id": 130558087,
+  "last_telegram_update_id": 130558090,
   "awaiting_reversal_confirmation": false,
   "last_closed_trade": null,
   "virtual_trade": null,
   "last_processed_virtual": null,
-  "day_done": false
+  "day_done": false,
+  "awaiting_setsl": false
 }
