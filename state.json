@@ -1,5 +1,5 @@
 {
-  "date": "2026-08-20",
+  "date": "2026-08-21",
   "mode": "off",
   "marked_high": null,
   "marked_low": null,
@@ -11,6 +11,5 @@
   "last_closed_trade": null,
   "virtual_trade": null,
   "last_processed_virtual": null,
-  "day_done": false,
-  "awaiting_setsl": false
+  "day_done": false
 }
