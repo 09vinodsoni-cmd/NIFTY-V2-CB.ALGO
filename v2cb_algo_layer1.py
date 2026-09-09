@@ -1,7 +1,15 @@
 """
 V²-CB Auto-Trading Bot - LAYER 1
 =================================
-Telegram command + inline button control layer.
+Telegram command + REPLY KEYBOARD control layer.
+
+Unlike inline buttons (attached to one message, invisible in chat history,
+answered via callback_query), reply keyboard buttons:
+- Stay visible as a persistent keyboard at the bottom of the chat
+- When tapped, send their label text as a REAL, VISIBLE, SAVED chat message
+  (indistinguishable from the user typing it)
+- Are read back via ordinary getUpdates "message" events - no callback
+  handling needed at all
 """
 
 import os
@@ -27,40 +35,38 @@ VALID_MODES = {
     "manual",
 }
 
+# Reply-keyboard button labels mapped to the underlying slash command they trigger.
+BUTTON_TEXT_TO_COMMAND = {
+    "🟢 ON": "/on",
+    "🔴 OFF": "/off",
+    "🔼 BULLISH ONLY": "/bullishonly",
+    "🔽 BEARISH ONLY": "/bearishonly",
+    "🖐️ MANUAL": "/manual",
+    "🔄 AUTO": "/auto",
+    "🎯 SET SL": "/setsl",
+}
+
 
 # ============================================================
-# TELEGRAM MENU
+# TELEGRAM MENU (Reply Keyboard)
 # ============================================================
 
 def get_main_menu():
     return {
-        "inline_keyboard": [
-            [
-                {"text": "🟢 ON", "callback_data": "/on"},
-                {"text": "🔴 OFF", "callback_data": "/off"},
-            ],
-            [
-                {"text": "🔼 BULLISH ONLY", "callback_data": "/bullishonly"},
-            ],
-            [
-                {"text": "🔽 BEARISH ONLY", "callback_data": "/bearishonly"},
-            ],
-            [
-                {"text": "🖐️ MANUAL", "callback_data": "/manual"},
-                {"text": "🔄 AUTO", "callback_data": "/auto"},
-            ],
-            [
-                {"text": "🎯 SET SL", "callback_data": "/setsl"},
-            ],
-        ]
+        "keyboard": [
+            [{"text": "🟢 ON"}, {"text": "🔴 OFF"}],
+            [{"text": "🔼 BULLISH ONLY"}],
+            [{"text": "🔽 BEARISH ONLY"}],
+            [{"text": "🖐️ MANUAL"}, {"text": "🔄 AUTO"}],
+            [{"text": "🎯 SET SL"}],
+        ],
+        "resize_keyboard": True,
+        "is_persistent": True,
     }
 
 
 def send_telegram(message: str, show_menu=False):
-    url = (
-        f"https://api.telegram.org/bot"
-        f"{TELEGRAM_BOT_TOKEN}/sendMessage"
-    )
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
     data = {
         "chat_id": TELEGRAM_CHAT_ID,
@@ -72,31 +78,9 @@ def send_telegram(message: str, show_menu=False):
         data["reply_markup"] = json.dumps(get_main_menu())
 
     try:
-        requests.post(
-            url,
-            data=data,
-            timeout=10
-        )
+        requests.post(url, data=data, timeout=10)
     except Exception as e:
         print("Telegram send failed:", e)
-
-
-def answer_callback_query(callback_query_id):
-    url = (
-        f"https://api.telegram.org/bot"
-        f"{TELEGRAM_BOT_TOKEN}/answerCallbackQuery"
-    )
-
-    try:
-        requests.post(
-            url,
-            data={
-                "callback_query_id": callback_query_id
-            },
-            timeout=10
-        )
-    except Exception as e:
-        print("Callback answer failed:", e)
 
 
 # ============================================================
@@ -106,13 +90,8 @@ def answer_callback_query(callback_query_id):
 def get_groww_access_token():
     totp_gen = pyotp.TOTP(GROWW_TOTP_SECRET)
     totp = totp_gen.now()
-
     from growwapi import GrowwAPI
-
-    return GrowwAPI.get_access_token(
-        api_key=GROWW_TOTP_API_KEY,
-        totp=totp
-    )
+    return GrowwAPI.get_access_token(api_key=GROWW_TOTP_API_KEY, totp=totp)
 
 
 # ============================================================
@@ -123,18 +102,12 @@ def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE) as f:
             return json.load(f)
-
     return {}
 
 
 def save_state(state):
     with open(STATE_FILE, "w") as f:
-        json.dump(
-            state,
-            f,
-            indent=2,
-            default=str
-        )
+        json.dump(state, f, indent=2, default=str)
 
 
 # ============================================================
@@ -143,461 +116,145 @@ def save_state(state):
 
 def fetch_new_telegram_commands(state):
     """
-    Fetch new Telegram messages and inline button callbacks.
+    Fetch new Telegram messages. Reply-keyboard button presses arrive here
+    as ordinary text messages (their label text) - no callback handling
+    is needed with reply keyboards.
 
-    Returns:
-        list of event dictionaries
+    Returns: list of plain text strings.
     """
-
-    last_update_id = state.get(
-        "last_telegram_update_id",
-        0
-    )
-
-    url = (
-        f"https://api.telegram.org/bot"
-        f"{TELEGRAM_BOT_TOKEN}/getUpdates"
-    )
-
-    params = {
-        "offset": last_update_id + 1,
-        "timeout": 0,
-    }
+    last_update_id = state.get("last_telegram_update_id", 0)
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+    params = {"offset": last_update_id + 1, "timeout": 0}
 
     try:
-        resp = requests.get(
-            url,
-            params=params,
-            timeout=10
-        )
-
+        resp = requests.get(url, params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
-
     except Exception as e:
         print("Telegram getUpdates failed:", e)
         return []
 
-    events = []
+    texts = []
     max_update_id = last_update_id
 
     for update in data.get("result", []):
+        update_id = update.get("update_id", 0)
+        max_update_id = max(max_update_id, update_id)
 
-        update_id = update.get(
-            "update_id",
-            0
-        )
+        msg = update.get("message", {})
+        text = msg.get("text", "").strip()
+        chat_id = str(msg.get("chat", {}).get("id", ""))
 
-        max_update_id = max(
-            max_update_id,
-            update_id
-        )
-
-        # ====================================================
-        # INLINE BUTTON CALLBACK
-        # ====================================================
-
-        callback_query = update.get(
-            "callback_query"
-        )
-
-        if callback_query:
-
-            callback_id = callback_query.get(
-                "id"
-            )
-
-            callback_data = callback_query.get(
-                "data",
-                ""
-            )
-
-            callback_chat_id = str(
-                callback_query.get(
-                    "message",
-                    {}
-                ).get(
-                    "chat",
-                    {}
-                ).get(
-                    "id",
-                    ""
-                )
-            )
-
-            if callback_chat_id != str(
-                TELEGRAM_CHAT_ID
-            ):
-                continue
-
-            events.append({
-                "type": "callback",
-                "text": callback_data,
-                "callback_id": callback_id,
-            })
-
+        if chat_id != str(TELEGRAM_CHAT_ID):
             continue
-
-        # ====================================================
-        # NORMAL TEXT MESSAGE
-        # ====================================================
-
-        msg = update.get(
-            "message",
-            {}
-        )
-
-        text = msg.get(
-            "text",
-            ""
-        ).strip()
-
-        chat_id = str(
-            msg.get(
-                "chat",
-                {}
-            ).get(
-                "id",
-                ""
-            )
-        )
-
-        if chat_id != str(
-            TELEGRAM_CHAT_ID
-        ):
-            continue
-
         if text:
-
-            events.append({
-                "type": "message",
-                "text": text,
-            })
+            texts.append(text)
 
     state["last_telegram_update_id"] = max_update_id
-
-    return events
+    return texts
 
 
 # ============================================================
 # COMMAND HANDLER
 # ============================================================
 
-def handle_command(state, cmd_event):
-    """
-    Handles both:
-    - Normal Telegram commands/messages
-    - Inline keyboard callbacks
-    """
-
+def handle_command(state, cmd_text):
+    """Handles both typed slash commands and reply-keyboard button presses
+    (whose label text gets mapped to the same underlying command)."""
     try:
+        cmd_text = str(cmd_text).strip()
 
-        # ----------------------------------------------------
-        # EVENT NORMALIZATION
-        # ----------------------------------------------------
+        # Reply-keyboard button press -> map its label to the real command
+        if cmd_text in BUTTON_TEXT_TO_COMMAND:
+            cmd_text = BUTTON_TEXT_TO_COMMAND[cmd_text]
 
-        if isinstance(cmd_event, dict):
-
-            event_type = cmd_event.get(
-                "type",
-                "message"
-            )
-
-            cmd_text = cmd_event.get(
-                "text",
-                ""
-            ).strip()
-
-            if event_type == "callback":
-
-                callback_id = cmd_event.get(
-                    "callback_id"
-                )
-
-                answer_callback_query(
-                    callback_id
-                )
-
-        else:
-
-            # Backward compatibility
-            event_type = "message"
-
-            cmd_text = str(
-                cmd_event
-            ).strip()
-
-        # ----------------------------------------------------
-        # SET SL NUMBER INPUT
-        # ----------------------------------------------------
-
-        if (
-            event_type == "message"
-            and state.get("awaiting_setsl") is True
-            and not cmd_text.startswith("/")
-        ):
-
+        # ---- SET SL number input (after the SET SL button was pressed) ----
+        if state.get("awaiting_setsl") is True and not cmd_text.startswith("/"):
             try:
-
-                new_sl = float(
-                    cmd_text
-                )
-
+                new_sl = float(cmd_text)
             except ValueError:
-
-                send_telegram(
-                    "⚠️ Please enter a valid SL price.\n"
-                    "Example: <code>24150</code>",
-                    show_menu=True
-                )
-
+                send_telegram("⚠️ Please enter a valid SL price.\nExample: <code>24150</code>", show_menu=True)
                 return
 
             if state.get("open_trade") is None:
-
                 state["awaiting_setsl"] = False
-
-                send_telegram(
-                    "⚠️ No open trade right now — "
-                    "nothing to update.",
-                    show_menu=True
-                )
-
+                send_telegram("⚠️ No open trade right now — nothing to update.", show_menu=True)
                 return
 
-            apply_manual_sl_override(
-                state,
-                new_sl
-            )
-
+            apply_manual_sl_override(state, new_sl)
             state["awaiting_setsl"] = False
-
-            send_telegram(
-                f"✅ SL override accepted: "
-                f"<b>{new_sl}</b>\n"
-                f"Algo will continue trailing from this level.",
-                show_menu=True
-            )
-
+            send_telegram(f"✅ SL override accepted: <b>{new_sl}</b>\n"
+                          f"Algo will continue trailing from this level.", show_menu=True)
             return
-
-        # ----------------------------------------------------
-        # NORMAL COMMAND
-        # ----------------------------------------------------
 
         parts = cmd_text.split()
-
         if not parts:
             return
-
         cmd = parts[0].lower()
 
-        # ====================================================
-        # START / MENU
-        # ====================================================
-
         if cmd == "/start":
-
             state["awaiting_setsl"] = False
-
-            send_telegram(
-                "🤖 <b>NIFTY V²-CB ALGO</b>\n\n"
-                "Select an action:",
-                show_menu=True
-            )
-
-        # ====================================================
-        # ON
-        # ====================================================
+            send_telegram("🤖 <b>NIFTY V²-CB ALGO</b>\n\nSelect an action:", show_menu=True)
 
         elif cmd == "/on":
-
             state["awaiting_setsl"] = False
             state["mode"] = "on"
-
-            resync_open_trade_from_broker(
-                state
-            )
-
-            send_telegram(
-                "✅ Mode: ON — full auto trading resumed for today.",
-                show_menu=True
-            )
-
-        # ====================================================
-        # OFF
-        # ====================================================
+            resync_open_trade_from_broker(state)
+            send_telegram("✅ Mode: ON — full auto trading resumed for today.", show_menu=True)
 
         elif cmd == "/off":
-
             state["awaiting_setsl"] = False
             state["mode"] = "off"
-
-            send_telegram(
-                "⏸️ Mode: OFF — no trading today.",
-                show_menu=True
-            )
-
-        # ====================================================
-        # BULLISH ONLY
-        # ====================================================
+            send_telegram("⏸️ Mode: OFF — no trading today.", show_menu=True)
 
         elif cmd == "/bullishonly":
-
             state["awaiting_setsl"] = False
             state["mode"] = "bullishonly"
-
-            send_telegram(
-                "🔼 Mode: BULLISH-ONLY\n\n"
-                "Only LONG trades will be taken for real.",
-                show_menu=True
-            )
-
-        # ====================================================
-        # BEARISH ONLY
-        # ====================================================
+            send_telegram("🔼 Mode: BULLISH-ONLY\n\nOnly LONG trades will be taken for real.", show_menu=True)
 
         elif cmd == "/bearishonly":
-
             state["awaiting_setsl"] = False
             state["mode"] = "bearishonly"
-
-            send_telegram(
-                "🔽 Mode: BEARISH-ONLY\n\n"
-                "Only SHORT trades will be taken for real.",
-                show_menu=True
-            )
-
-        # ====================================================
-        # MANUAL
-        # ====================================================
+            send_telegram("🔽 Mode: BEARISH-ONLY\n\nOnly SHORT trades will be taken for real.", show_menu=True)
 
         elif cmd == "/manual":
-
             state["awaiting_setsl"] = False
-
             if state.get("open_trade") is None:
-
-                send_telegram(
-                    "⚠️ No open trade right now — "
-                    "nothing to hand over. Mode unchanged.",
-                    show_menu=True
-                )
-
+                send_telegram("⚠️ No open trade right now — nothing to hand over. Mode unchanged.", show_menu=True)
             else:
-
                 state["open_trade"]["control"] = "manual"
                 state["mode"] = "manual"
-
-                send_telegram(
-                    "🖐️ Control handed to you.\n\n"
-                    "Algo will NOT modify the current "
-                    "trade SL/exit anymore.",
-                    show_menu=True
-                )
-
-        # ====================================================
-        # AUTO
-        # ====================================================
+                send_telegram("🖐️ Control handed to you.\n\n"
+                              "Algo will NOT modify the current trade SL/exit anymore.", show_menu=True)
 
         elif cmd == "/auto":
-
             state["awaiting_setsl"] = False
             state["mode"] = "on"
-
-            resync_open_trade_from_broker(
-                state
-            )
-
-            send_telegram(
-                "🔄 Control resynced from broker "
-                "and handed back to algo.",
-                show_menu=True
-            )
-
-        # ====================================================
-        # SET SL
-        # ====================================================
+            resync_open_trade_from_broker(state)
+            send_telegram("🔄 Control resynced from broker and handed back to algo.", show_menu=True)
 
         elif cmd == "/setsl":
-
-            # If price is directly written:
-            # /setsl 24150
             if len(parts) >= 2:
-
                 try:
-
-                    new_sl = float(
-                        parts[1]
-                    )
-
+                    new_sl = float(parts[1])
                 except ValueError:
-
-                    send_telegram(
-                        f"⚠️ '{parts[1]}' is not a valid price.",
-                        show_menu=True
-                    )
-
+                    send_telegram(f"⚠️ '{parts[1]}' is not a valid price.", show_menu=True)
                     return
-
                 if state.get("open_trade") is None:
-
-                    send_telegram(
-                        "⚠️ No open trade right now — "
-                        "nothing to update.",
-                        show_menu=True
-                    )
-
+                    send_telegram("⚠️ No open trade right now — nothing to update.", show_menu=True)
                     return
-
-                apply_manual_sl_override(
-                    state,
-                    new_sl
-                )
-
-                send_telegram(
-                    f"✅ SL override accepted: "
-                    f"<b>{new_sl}</b>",
-                    show_menu=True
-                )
-
+                apply_manual_sl_override(state, new_sl)
+                send_telegram(f"✅ SL override accepted: <b>{new_sl}</b>", show_menu=True)
             else:
-
-                # Button click
                 state["awaiting_setsl"] = True
-
-                send_telegram(
-                    "🎯 <b>SET SL</b>\n\n"
-                    "Enter new SL price.\n"
-                    "Example: <code>24150</code>",
-                    show_menu=True
-                )
-
-        # ====================================================
-        # UNKNOWN COMMAND
-        # ====================================================
+                send_telegram("🎯 <b>SET SL</b>\n\nEnter new SL price.\nExample: <code>24150</code>", show_menu=True)
 
         else:
-
-            send_telegram(
-                "❓ Unrecognized command.\n\n"
-                "Use the buttons below.",
-                show_menu=True
-            )
+            send_telegram("❓ Unrecognized command.\n\nUse the buttons below.", show_menu=True)
 
     except Exception as e:
-
-        print(
-            "Error handling command:",
-            cmd_event,
-            "-",
-            e
-        )
-
-        send_telegram(
-            f"⚠️ Something went wrong:\n{e}",
-            show_menu=True
-        )
+        print("Error handling command:", cmd_text, "-", e)
+        send_telegram(f"⚠️ Something went wrong:\n{e}", show_menu=True)
 
 
 # ============================================================
@@ -605,35 +262,13 @@ def handle_command(state, cmd_event):
 # ============================================================
 
 def resync_open_trade_from_broker(state):
-    """
-    When control returns to algo (/on or /auto),
-    mark the trade as auto-controlled.
-    """
-
     if state.get("open_trade") is None:
         return
-
     state["open_trade"]["control"] = "auto"
-
-    # TODO:
-    # Fetch actual live position and active SL order
-    # from Groww and reconcile state.
+    # TODO: fetch actual live position and active SL order from Groww and reconcile state.
 
 
 def apply_manual_sl_override(state, new_sl_price):
-    """
-    Apply manual SL override.
-
-    Currently updates internal state.
-    Broker order replacement remains Layer 2/3 hook.
-    """
-
     state["open_trade"]["sl_current"] = new_sl_price
-
-    state["open_trade"][
-        "sl_manually_overridden"
-    ] = True
-
-    # TODO:
-    # Cancel current SL order
-    # Place new SL-Market order
+    state["open_trade"]["sl_manually_overridden"] = True
+    # TODO: cancel current SL order, place new SL-Market order.
